@@ -8,6 +8,7 @@ class Settings(BaseSettings):
 
     # API Keys
     GROQ_API_KEY: str
+    GROQ_MODEL: str = "qwen/qwen3.8-27b"
     SERPAPI_API_KEY: str
     GITHUB_TOKEN: Optional[str] = None   # Optional — unlocks 5000 req/hr vs 60
 

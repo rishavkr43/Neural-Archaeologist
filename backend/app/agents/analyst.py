@@ -390,7 +390,7 @@ Consider CUI score, OCS, bus factor, risk signals AND git patterns. Be objective
                     },
                     {"role": "user", "content": prompt},
                 ],
-                model="llama-3.1-70b-versatile",
+                model=settings.GROQ_MODEL,
                 temperature=0.3,
                 max_tokens=1200,
             )

@@ -394,7 +394,7 @@ Instructions:
                     },
                     {"role": "user", "content": prompt},
                 ],
-                model="llama-3.1-70b-versatile",
+                model=settings.GROQ_MODEL,
                 temperature=0.7,
                 max_tokens=2000,
             )

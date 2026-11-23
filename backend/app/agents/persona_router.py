@@ -215,7 +215,7 @@ Respond in JSON:
                     {"role": "system", "content": "You classify repository analysis requests into persona modes. Respond only with valid JSON."},
                     {"role": "user", "content": prompt}
                 ],
-                model="llama-3.1-70b-versatile",
+                model=settings.GROQ_MODEL,
                 temperature=0.1,
                 max_tokens=300
             )
