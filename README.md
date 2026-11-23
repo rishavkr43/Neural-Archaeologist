@@ -117,7 +117,7 @@ Four computation steps:
 2. **Onboarding Graph** — imports → DAG → topological sort → Day 1/Week 1/Week 2 tiers  
 3. **OCS** — Onboarding Complexity Score (0–100)
 4. **Business Risk** — 4 risk rules (CRITICAL / HIGH / MEDIUM)
-5. **LLM Hypothesis** — Groq `llama-3.3-70b-versatile` forms a narrative hypothesis with confidence score
+5. **LLM Hypothesis** — Groq `llama-3.1-70b-versatile` forms a narrative hypothesis with confidence score
 
 **Confidence Output**: Real computed confidence (typically 60-90%)
 
@@ -232,7 +232,7 @@ The **Onboarding Complexity Score (OCS)** aggregates graph depth, breadth, cyclo
 |-----------|-----------|
 | Framework | FastAPI 0.104 |
 | Agent Orchestration | LangGraph 0.0.20 |
-| LLM | Groq `llama-3.3-70b-versatile` |
+| LLM | Groq `llama-3.1-70b-versatile` |
 | Git Analysis | GitPython 3.1.40 |
 | Web Search | SerpAPI + BeautifulSoup4 |
 | Database | PostgreSQL via SQLAlchemy 2.0 |
