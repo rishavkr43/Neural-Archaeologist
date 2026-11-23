@@ -115,13 +115,17 @@ class NarratorAgent:
         parts = []
         c = 1
         for _, results in scout_data.get("web_search_results", {}).items():
-            for r in results:
+            for r in results[:2]:
+                snippet = r.get("snippet", "")[:240]
                 parts.append(
-                    f"[Source {c}] {r['title']}\nURL: {r['link']}\n"
-                    f"Snippet: {r.get('snippet','')}\n"
-                    f"Content: {r.get('full_content','')[:800]}"
+                    f"[Source {c}] {r.get('title', 'Unknown')[:120]}\n"
+                    f"URL: {r.get('link', '')}\nSnippet: {snippet}"
                 )
                 c += 1
+                if c > 4:
+                    break
+            if c > 4:
+                break
         return "\n\n".join(parts) if parts else "No external web sources."
 
     def _format_learning_path(self, analysis: Dict) -> str:
@@ -130,8 +134,8 @@ class NarratorAgent:
         if not tiers:
             return "No learning path available."
         lines = []
-        for tier, files in tiers.items():
-            lines.append(f"**{tier.upper()}**: {', '.join(files[:5])}" + (" ..." if len(files) > 5 else ""))
+        for tier, files in list(tiers.items())[:3]:
+            lines.append(f"**{tier.upper()}**: {', '.join(files[:3])}" + (" ..." if len(files) > 3 else ""))
         return "\n".join(lines)
 
     def _format_bus_factor(self, scout_data: Dict) -> str:
@@ -141,7 +145,7 @@ class NarratorAgent:
         critical = [(k, v) for k, v in bf_map.items() if v.get("critical", False)]
         if not critical:
             return "No critical single-owner files detected."
-        lines = [f"- `{f}` — top author owns {v.get('top_author_pct',0)*100:.0f}% of commits" for f, v in critical[:10]]
+        lines = [f"- `{f}` — top author owns {v.get('top_author_pct',0)*100:.0f}% of commits" for f, v in critical[:5]]
         return "\n".join(lines)
 
     def _format_safe_first_pr(self, scout_data: Dict) -> str:
@@ -158,7 +162,7 @@ class NarratorAgent:
             return "No critical/high risk patterns detected."
         lines = [
             f"- [{f['severity']}] `{f['file']}` — {f['pattern']} ({f['occurrences']}x)"
-            for f in critical_high[:10]
+            for f in critical_high[:5]
         ]
         return "\n".join(lines)
 
@@ -224,13 +228,52 @@ One line verdict (HIGHLY SALVAGEABLE / PARTIALLY SALVAGEABLE / NOT SALVAGEABLE) 
 {"### 📚 SOURCES" + chr(10) + self._format_web_evidence(scout_data) if has_web else ""}
 """
 
+    def _build_fallback_report(self, scout_data: Dict, analysis: Dict, persona_mode: str) -> str:
+        struct = PERSONA_REPORT_STRUCTURE.get(persona_mode, PERSONA_REPORT_STRUCTURE["SOLO_DEV"])
+        cui = analysis.get("cui_scores", {}).get("cui_score", 0)
+        ocs = analysis.get("ocs_score", 0)
+        findings = "\n".join(f"- {str(item)[:300]}" for item in analysis.get("key_findings", [])[:8]) or "- No key findings available."
+        return f"""# {struct['title']}
+
+> AI narration is temporarily unavailable due to Groq provider limits. The report below is generated directly from the repository analysis.
+
+## Executive Summary
+- **Repository:** {scout_data.get('repo_name', 'Unknown')}
+- **Hypothesis:** {str(analysis.get('hypothesis', 'Unknown'))[:500]}
+- **Technical health:** {analysis.get('technical_health', 'N/A')}
+- **CUI score:** {cui:.1f}/100
+- **Onboarding complexity:** {ocs}/100 ({analysis.get('ocs_label', 'N/A')})
+- **Salvageability:** {analysis.get('salvageability', 'unknown')}
+
+## Key Findings
+{findings}
+
+## Repository Health
+{self._format_patterns(scout_data)}
+
+## Bus Factor
+{self._format_bus_factor(scout_data)}
+
+## Risk Findings
+{self._format_risk_findings(scout_data)}
+
+## Learning Path
+{self._format_learning_path(analysis)}
+
+## Safe First PR
+{self._format_safe_first_pr(scout_data)}
+
+## Verdict
+This repository has a CUI score of {cui:.1f}/100 and onboarding complexity of {ocs}/100. Prioritize the findings above and wait for AI narration quota to recover for a fuller persona-specific interpretation.
+""" + self._glossary()
+
     def _build_prompt(self, scout_data: Dict, analysis: Dict, persona_mode: str) -> str:
         struct = PERSONA_REPORT_STRUCTURE.get(persona_mode, PERSONA_REPORT_STRUCTURE["SOLO_DEV"])
         sections_str = "\n".join(f"- {s}" for s in struct["sections"])
 
         data_block = f"""
 Repository: {scout_data.get('repo_name', 'Unknown')}
-Hypothesis: {analysis.get('hypothesis', '')}
+Hypothesis: {str(analysis.get('hypothesis', ''))[:500]}
 Confidence: {analysis.get('confidence', 0)}%
 Technical Health: {analysis.get('technical_health', 'N/A')}
 Likely Cause: {analysis.get('likely_cause', 'unknown')}
@@ -261,7 +304,7 @@ Safe First PR:
 {self._format_safe_first_pr(scout_data)}
 
 Key Findings:
-{chr(10).join(f'- {f}' for f in analysis.get('key_findings', []))}
+{chr(10).join(f'- {str(f)[:300]} ' for f in analysis.get('key_findings', [])[:8])}
 
 Web Evidence:
 {self._format_web_evidence(scout_data)}
@@ -452,6 +495,29 @@ Instructions:
             return report
 
         except Exception as e:
+            error_text = str(e)
+            is_rate_limit = "413" in error_text or "429" in error_text or "rate_limit" in error_text.lower() or "too large" in error_text.lower()
+            if is_rate_limit:
+                self.emit_progress("AI quota reached; returning a data-driven fallback report")
+                narrative = self._build_fallback_report(scout_data, analysis, persona_mode)
+                return {
+                    "narrative": narrative,
+                    "timeline": self.generate_timeline(scout_data, analysis),
+                    "contributor_profiles": self.format_contributor_profiles(scout_data),
+                    "citations": self.extract_citations(scout_data) if has_web else [],
+                    "has_external_sources": has_web,
+                    "persona_mode": persona_mode,
+                    "safe_first_pr": {
+                        "good_first_issues": scout_data.get("community", {}).get("good_first_issues", []),
+                        "suggestion": "Look for test files and documentation gaps if no labelled issues are available.",
+                    },
+                    "learning_path": analysis.get("onboarding_graph", {}).get("learning_tiers", {}),
+                    "bus_factor_summary": self._format_bus_factor(scout_data),
+                    "executive_summary": {},
+                    "metadata": {"fallback": True, "provider_error": error_text},
+                    "warning": "AI narrative unavailable due to provider quota/rate limits; fallback report generated.",
+                }
+
             self.emit_progress(f"Report generation failed: {e}")
             return {
                 "narrative": f"# Error\n\nFailed to generate narrative: {e}",
